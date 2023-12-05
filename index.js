@@ -25,7 +25,7 @@ const args = yargs
     boolean: true,
     default: false,
   })
-  .epilog('Задание 1')
+  .epilog('Задание 2.1')
   .argv
 
 const config = {
@@ -34,8 +34,48 @@ const config = {
   delete: args.delete,
 }
 
+function readdir(src) {
+  return new Promise((resolve, reject) => {
+    fs.readdir(src, (err, files) => {
+      if (err) reject(err)
+
+      resolve(files)
+    })
+  })
+}
+
+function mkDir(src) {
+  return new Promise((resolve, reject) => {
+    createDir(src, (err) => {
+      if (err) reject(err)
+
+      resolve()
+    })
+  })
+}
+
+function copyFile(from, to) {
+  return new Promise((resolve, reject) => {
+    fs.link(from, to, (err) => {
+      if (err) reject(err)
+
+      resolve()
+    })
+  })
+}
+
+function stats(src) {
+  return new Promise((resolve, reject) => {
+    fs.stat(src, (err, stat) => {
+      if (err) reject(err)
+
+      resolve(stat)
+    })
+  })
+}
+
 function createDir(src, cb) {
-  fs.mkdir(src, (err) => {
+  fs.mkdir(src, function (err) {
     if (err && err.code === 'EEXIST') return cb(null)
     if (err) return cb(err)
 
@@ -43,64 +83,37 @@ function createDir(src, cb) {
   })
 }
 
-function sorter(src) {
-  fs.readdir(src, (err, files) => {
-    if (err) throw err
+(async () => {
+  async function sorter(src) {
+    const files = await readdir(src)
 
-    files.forEach((file) => {
+    for (const file of files) {
       const currentPath = path.join(src, file)
+      const stat = await stats(currentPath)
 
-      const innerDir = path.basename(currentPath)[0].toUpperCase()
+      if (stat.isDirectory()) {
+        await sorter(currentPath)
+      } else {
+        await mkDir(config.dist)
 
-      fs.stat(currentPath, (err, stats) => {
-        if (err) throw err
+        const innerDir = path.basename(currentPath)[0].toUpperCase()
 
-        if (stats.isDirectory()) {
-          sorter(currentPath)
-        } else {
-          createDir(config.dist, (err) => {
-            if (err) throw err
-
-            createDir(path.join(args.dist, innerDir), (err) => {
-              if (err) throw err
-
-              fs.link(
-                currentPath,
-                path.join(args.dist, innerDir, path.basename(currentPath)),
-                (err) => {
-                  if (err) {
-                    console.error(err)
-                    return
-                  }
-                }
-              )
-
-              if (args.delete) {
-                console.log(currentPath)
-                fs.unlink(currentPath, (err) => {
-                  if (err) {
-                    console.log(err)
-                    return
-                  }
-                })
-              }
-            })
-          })
-        }
-      })
-    })
-  })
-}
-try {
-  sorter(config.src)
-} catch (error) {
-  console.log(error)
-}
-
-process.on('exit', () => {
-  if (args.delete) {
-    fs.rmdirSync(config.src, { recursive: true }, (err) => {
-      if (err) throw err
-    })
+        await mkDir(path.join(args.dist, innerDir))
+        await copyFile(
+          currentPath,
+          path.join(args.dist, innerDir, path.basename(currentPath))
+        )
+      }
+    }
   }
-})
+
+  try {
+    await sorter(config.src)
+
+    if (args.delete) {
+      fs.rmSync(config.src, { recursive: true })
+    }
+  } catch (error) {
+    console.log(error)
+  }
+})()
